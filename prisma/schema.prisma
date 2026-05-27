@@ -1,0 +1,141 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ═══════════════════════════════════
+// DANH MỤC SẢN PHẨM
+// ═══════════════════════════════════
+
+model Category {
+  id        String    @id @default(uuid())
+  name      String    // "Cà phê", "Trà sữa", "Nước ép", "Topping"
+  icon      String?   // Emoji hoặc icon name
+  sortOrder Int       @default(0)
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  products  Product[]
+
+  @@map("categories")
+}
+
+model Product {
+  id          String      @id @default(uuid())
+  name        String      // "Cà phê sữa đá"
+  categoryId  String
+  category    Category    @relation(fields: [categoryId], references: [id])
+  priceS      Int?        // Giá size S (VNĐ) — nullable nếu không có size
+  priceM      Int         // Giá size M (mặc định)
+  priceL      Int?        // Giá size L
+  image       String?     // URL ảnh sản phẩm
+  isAvailable Boolean    @default(true)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  orderItems  OrderItem[]
+
+  @@map("products")
+}
+
+model Topping {
+  id        String   @id @default(uuid())
+  name      String   // "Trân châu", "Thạch", "Kem cheese"
+  price     Int      // Giá (VNĐ)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@map("toppings")
+}
+
+// ═══════════════════════════════════
+// ĐƠN HÀNG
+// ═══════════════════════════════════
+
+model Order {
+  id            String      @id @default(uuid())
+  orderNumber   String      @unique // "HD-20260527-001"
+  items         OrderItem[]
+  totalAmount   Int         // Tổng tiền (VNĐ)
+  discount      Int         @default(0) // Giảm giá
+  finalAmount   Int         // Thành tiền = total - discount
+  paymentMethod String      // "cash" | "transfer"
+  status        String      @default("completed") // "completed" | "cancelled"
+  note          String?
+  employeeId    String
+  employeeName  String
+  createdAt     DateTime    @default(now())
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id          String  @id @default(uuid())
+  orderId     String
+  order       Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId   String
+  product     Product @relation(fields: [productId], references: [id])
+  productName String  // Snapshot tên lúc đặt
+  size        String  // "S" | "M" | "L"
+  quantity    Int
+  unitPrice   Int     // Giá 1 ly (đã bao gồm topping)
+  toppings    String? // JSON string: ["Trân châu", "Kem cheese"]
+  totalPrice  Int     // unitPrice * quantity
+
+  @@map("order_items")
+}
+
+// ═══════════════════════════════════
+// KHO HÀNG
+// ═══════════════════════════════════
+
+model InventoryItem {
+  id          String         @id @default(uuid())
+  name        String         // "Bột cà phê", "Sữa tươi", "Trân châu"
+  unit        String         // "kg", "lít", "gói", "hộp"
+  quantity    Float          // Số lượng tồn kho
+  minQuantity Float          @default(0) // Ngưỡng cảnh báo
+  costPrice   Int            @default(0) // Giá nhập (VNĐ)
+  isActive    Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  logs        InventoryLog[]
+
+  @@map("inventory_items")
+}
+
+model InventoryLog {
+  id           String        @id @default(uuid())
+  itemId       String
+  item         InventoryItem @relation(fields: [itemId], references: [id])
+  type         String        // "import" | "export" | "adjust"
+  quantity     Float         // Số lượng thay đổi
+  note         String?
+  employeeId   String
+  employeeName String
+  createdAt    DateTime      @default(now())
+
+  @@map("inventory_logs")
+}
+
+// ═══════════════════════════════════
+// NHÂN VIÊN
+// ═══════════════════════════════════
+
+model Employee {
+  id        String   @id @default(uuid())
+  authId    String?  @unique // Supabase Auth user ID
+  name      String
+  email     String   @unique
+  phone     String?
+  role      String   @default("cashier") // "admin" | "cashier" | "staff"
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("employees")
+}
