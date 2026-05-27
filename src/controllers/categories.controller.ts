@@ -18,6 +18,7 @@ export const getCategories = async (
 ) => {
   try {
     const categories = await prisma.category.findMany({
+      where: { isActive: true },
       orderBy: {
         sortOrder: 'asc'
       }
@@ -113,11 +114,16 @@ export const deleteCategory = async (
   try {
     const { id } = req.params;
 
+    // Fetch category along with its products and their orderItems count
     const category = await prisma.category.findUnique({
       where: { id },
       include: {
-        _count: {
-          select: { products: true }
+        products: {
+          include: {
+            _count: {
+              select: { orderItems: true }
+            }
+          }
         }
       }
     });
@@ -126,17 +132,45 @@ export const deleteCategory = async (
       return next(new AppError('Danh mục không tồn tại', 404));
     }
 
-    if (category._count.products > 0) {
-      return next(new AppError('Không thể xóa danh mục đang có sản phẩm. Vui lòng chuyển các sản phẩm sang danh mục khác trước.', 400));
+    // Check if any product in this category has been ordered in the past
+    const hasOrders = category.products.some(p => p._count.orderItems > 0);
+
+    if (hasOrders) {
+      // If there are past orders, perform soft-delete by deactivating category and products
+      await prisma.$transaction([
+        // Deactivate all products belonging to this category
+        prisma.product.updateMany({
+          where: { categoryId: id },
+          data: { isAvailable: false }
+        }),
+        // Deactivate the category itself
+        prisma.category.update({
+          where: { id },
+          data: { isActive: false }
+        })
+      ]);
+
+      return res.json({
+        success: true,
+        message: 'Danh mục này đã có lịch sử hóa đơn. Hệ thống đã tự động ẩn (ngừng hoạt động) danh mục và các sản phẩm liên quan để bảo toàn báo cáo doanh thu.'
+      });
     }
 
-    await prisma.category.delete({
-      where: { id }
-    });
+    // If there are no past orders (like in testing mode), safely cascade delete everything
+    await prisma.$transaction([
+      // Hard delete all products under this category
+      prisma.product.deleteMany({
+        where: { categoryId: id }
+      }),
+      // Hard delete the category itself
+      prisma.category.delete({
+        where: { id }
+      })
+    ]);
 
     res.json({
       success: true,
-      message: 'Đã xóa danh mục thành công'
+      message: 'Đã xóa hoàn toàn danh mục và các sản phẩm liên quan thành công.'
     });
   } catch (err) {
     next(err);
