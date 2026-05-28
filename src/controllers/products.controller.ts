@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
 import { AppError } from '../middleware/error.middleware';
 import { z } from 'zod';
+import { cacheManager } from '../lib/cache';
 
 const productSchema = z.object({
   name: z.string().min(1, 'Tên sản phẩm không được để trống'),
@@ -21,6 +22,16 @@ export const getProducts = async (
 ) => {
   try {
     const { categoryId, isAvailable } = req.query;
+
+    const cacheKey = `products:list:cat_${categoryId || 'all'}:avail_${isAvailable !== undefined ? isAvailable : 'all'}`;
+    const cachedProducts = cacheManager.get<any[]>(cacheKey);
+
+    if (cachedProducts) {
+      return res.json({
+        success: true,
+        data: cachedProducts
+      });
+    }
 
     const where: any = {};
     if (categoryId) {
@@ -43,6 +54,9 @@ export const getProducts = async (
         name: 'asc'
       }
     });
+
+    // Save to cache (default TTL 1 hour)
+    cacheManager.set(cacheKey, products);
 
     res.json({
       success: true,
@@ -125,6 +139,9 @@ export const createProduct = async (
       }
     });
 
+    // Invalidate product caches
+    cacheManager.clearPattern('products:');
+
     res.status(201).json({
       success: true,
       data: newProduct
@@ -170,6 +187,9 @@ export const updateProduct = async (
       }
     });
 
+    // Invalidate product caches
+    cacheManager.clearPattern('products:');
+
     res.json({
       success: true,
       data: updatedProduct
@@ -207,6 +227,10 @@ export const deleteProduct = async (
         where: { id },
         data: { isAvailable: false }
       });
+      
+      // Invalidate caches
+      cacheManager.clearPattern('products:');
+
       return res.json({
         success: true,
         message: 'Sản phẩm đã có lịch sử đơn hàng. Hệ thống đã chuyển trạng thái thành Ngừng kinh doanh thay vì xóa cứng.'
@@ -216,6 +240,9 @@ export const deleteProduct = async (
     await prisma.product.delete({
       where: { id }
     });
+
+    // Invalidate caches
+    cacheManager.clearPattern('products:');
 
     res.json({
       success: true,

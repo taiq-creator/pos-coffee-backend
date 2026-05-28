@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
 import { AppError } from '../middleware/error.middleware';
 import { z } from 'zod';
+import { cacheManager } from '../lib/cache';
 
 const toppingSchema = z.object({
   name: z.string().min(1, 'Tên topping không được để trống'),
@@ -16,11 +17,24 @@ export const getToppings = async (
   next: NextFunction
 ) => {
   try {
+    const cacheKey = 'toppings:list';
+    const cachedToppings = cacheManager.get<any[]>(cacheKey);
+
+    if (cachedToppings) {
+      return res.json({
+        success: true,
+        data: cachedToppings
+      });
+    }
+
     const toppings = await prisma.topping.findMany({
       orderBy: {
         name: 'asc'
       }
     });
+
+    // Save to cache (default TTL 1 hour)
+    cacheManager.set(cacheKey, toppings);
 
     res.json({
       success: true,
@@ -60,6 +74,9 @@ export const createTopping = async (
       }
     });
 
+    // Invalidate caches
+    cacheManager.delete('toppings:list');
+
     res.status(201).json({
       success: true,
       data: newTopping
@@ -94,6 +111,9 @@ export const updateTopping = async (
       data: validation.data
     });
 
+    // Invalidate caches
+    cacheManager.delete('toppings:list');
+
     res.json({
       success: true,
       data: updatedTopping
@@ -122,6 +142,9 @@ export const deleteTopping = async (
     await prisma.topping.delete({
       where: { id }
     });
+
+    // Invalidate caches
+    cacheManager.delete('toppings:list');
 
     res.json({
       success: true,

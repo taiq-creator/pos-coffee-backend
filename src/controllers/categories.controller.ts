@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { AuthenticatedRequest } from '../middleware/auth.middleware';
 import { AppError } from '../middleware/error.middleware';
 import { z } from 'zod';
+import { cacheManager } from '../lib/cache';
 
 const categorySchema = z.object({
   name: z.string().min(1, 'Tên danh mục không được để trống'),
@@ -17,12 +18,25 @@ export const getCategories = async (
   next: NextFunction
 ) => {
   try {
+    const cacheKey = 'categories:active';
+    const cachedCategories = cacheManager.get<any[]>(cacheKey);
+
+    if (cachedCategories) {
+      return res.json({
+        success: true,
+        data: cachedCategories
+      });
+    }
+
     const categories = await prisma.category.findMany({
       where: { isActive: true },
       orderBy: {
         sortOrder: 'asc'
       }
     });
+
+    // Save to cache (default TTL 1 hour)
+    cacheManager.set(cacheKey, categories);
 
     res.json({
       success: true,
@@ -63,6 +77,9 @@ export const createCategory = async (
       }
     });
 
+    // Invalidate caches
+    cacheManager.delete('categories:active');
+
     res.status(201).json({
       success: true,
       data: newCategory
@@ -96,6 +113,10 @@ export const updateCategory = async (
       where: { id },
       data: validation.data
     });
+
+    // Invalidate caches (both categories and products since products have category info)
+    cacheManager.delete('categories:active');
+    cacheManager.clearPattern('products:');
 
     res.json({
       success: true,
@@ -150,6 +171,10 @@ export const deleteCategory = async (
         })
       ]);
 
+      // Invalidate caches
+      cacheManager.delete('categories:active');
+      cacheManager.clearPattern('products:');
+
       return res.json({
         success: true,
         message: 'Danh mục này đã có lịch sử hóa đơn. Hệ thống đã tự động ẩn (ngừng hoạt động) danh mục và các sản phẩm liên quan để bảo toàn báo cáo doanh thu.'
@@ -167,6 +192,10 @@ export const deleteCategory = async (
         where: { id }
       })
     ]);
+
+    // Invalidate caches
+    cacheManager.delete('categories:active');
+    cacheManager.clearPattern('products:');
 
     res.json({
       success: true,

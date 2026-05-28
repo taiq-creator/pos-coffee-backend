@@ -23,6 +23,7 @@ model Category {
   products  Product[]
 
   @@map("categories")
+  @@index([isActive])
 }
 
 model Product {
@@ -40,6 +41,7 @@ model Product {
   orderItems  OrderItem[]
 
   @@map("products")
+  @@index([categoryId, isAvailable])
 }
 
 model Topping {
@@ -50,6 +52,7 @@ model Topping {
   createdAt DateTime @default(now())
 
   @@map("toppings")
+  @@index([isActive])
 }
 
 // ═══════════════════════════════════
